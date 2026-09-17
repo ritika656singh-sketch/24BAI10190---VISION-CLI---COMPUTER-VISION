@@ -1,0 +1,138 @@
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+pytesseract>=0.3.10
+numpy>=1.24.0
+pytest>=7.0.0
+import logging
+
+def get_logger(name="VisionPipeline"):
+    logger = logging.getLogger(name)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+    return logger
+import cv2
+import os
+from src.logger import get_logger
+
+logger = get_logger()
+
+class ImageLoader:
+    @staticmethod
+    def load_image(file_path):
+        if not os.path.exists(file_path):
+            logger.error(f"File not found: {file_path}")
+            raise FileNotFoundError(f"Path {file_path} does not exist.")
+        img = cv2.imread(file_path)
+        if img is None:
+            logger.error(f"Invalid image file: {file_path}")
+            raise ValueError("Could not decode image.")
+        logger.info(f"Loaded image from {file_path}")
+        return img
+import cv2
+from src.logger import get_logger
+
+logger = get_logger()
+
+class Preprocessor:
+    @staticmethod
+    def process_for_ocr(image):
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        thresh = cv2.adaptiveThreshold(
+            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+        )
+        logger.info("Image adaptive preprocessing complete.")
+        return thresh
+import pytesseract
+from src.logger import get_logger
+
+logger = get_logger()
+
+class OCREngine:
+    @staticmethod
+    def extract_text(processed_image):
+        try:
+            text = pytesseract.image_to_string(processed_image)
+            logger.info("OCR extraction finished successfully.")
+            return text.strip()
+        except Exception as e:
+            logger.error(f"OCR processing failed: {str(e)}")
+            return ""
+import cv2
+import mediapipe as mp
+from src.logger import get_logger
+
+logger = get_logger()
+
+class GestureAnalyzer:
+    def __init__(self):
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(static_image_mode=True, max_num_hands=1)
+
+    def count_fingers(self, image):
+        rgb_img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        results = self.hands.process(rgb_img)
+        if not results.multi_hand_landmarks:
+            logger.info("No hands detected in image.")
+            return 0
+        
+        landmarks = results.multi_hand_landmarks[0].landmark
+        finger_tips = [8, 12, 16, 20]
+        count = 0
+        for tip in finger_tips:
+            if landmarks[tip].y < landmarks[tip - 2].y:
+                count += 1
+        logger.info(f"Detected {count} raised fingers.")
+        return count
+import argparse
+import sys
+from src.image_loader import ImageLoader
+from src.preprocessor import Preprocessor
+from src.ocr_engine import OCREngine
+from src.gesture_detector import GestureAnalyzer
+from src.logger import get_logger
+
+logger = get_logger()
+
+def main():
+    parser = argparse.ArgumentParser(description="OptiGesture Engine CLI")
+    parser.add_argument("--image", type=str, required=True, help="Path to input image")
+    parser.add_argument("--task", type=str, choices=["ocr", "gesture", "both"], default="both")
+    
+    args = parser.parse_args()
+    
+    try:
+        img = ImageLoader.load_image(args.image)
+        
+        if args.task in ["ocr", "both"]:
+            prep = Preprocessor.process_for_ocr(img)
+            text = OCREngine.extract_text(prep)
+            print("\n--- OCR EXTRACTED TEXT ---")
+            print(text if text else "[No readable text found]")
+            
+        if args.task in ["gesture", "both"]:
+            analyzer = GestureAnalyzer()
+            count = analyzer.count_fingers(img)
+            print("\n--- GESTURE DETECTION RESULT ---")
+            print(f"Fingers Counted: {count}")
+            
+    except Exception as e:
+        logger.error(f"Pipeline Execution Failed: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+import pytest
+import numpy as np
+from src.preprocessor import Preprocessor
+
+def test_preprocessing_shape():
+    dummy_img = np.zeros((100, 100, 3), dtype=np.uint8)
+    processed = Preprocessor.process_for_ocr(dummy_img)
+    assert processed.shape == (100, 100)
+
+
